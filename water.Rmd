@@ -1,0 +1,67 @@
+---
+title: "Come on in, the water's of questionable quality"
+author: "Kai Aragaki"
+date: "2021-08-23"
+output: tufte::tufte_html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(knitr)
+library(leaflet)
+```
+
+Often, a point of pride for country living is the pure, mountain water that you get directly from the tap. No one is bragging over their city water. But how bad is it? And is it getting worse?
+
+To investigate, I've downloaded surface water quality data from my city ([source](https://data.baltimorecity.gov/datasets/surface-water-quality-data-since-1995-/explore)). I'm going to focus on lead, to make this large dataset smaller:
+
+```{r}
+water <- 
+  read_csv("./data/Surface_Water_Quality_Data_since_1995_.csv", show_col_types = FALSE) |> 
+  select(-Lab) |>
+  filter(str_detect(Parameter, "Lead_Total"))
+  
+water |> head() |> kable()
+```
+
+To make this a bit easier, I'm going only include the first and last collection point for each location:
+
+```{r}
+first_last <- water |> 
+  group_by(Station, Parameter) |> 
+  arrange(datetime) |> 
+  filter(n() > 1) |> 
+  filter(row_number() %in% c(1, n())) |> 
+  distinct(OBJECTID, .keep_all = TRUE) |> 
+  mutate(color = if_else(row_number() == 1, "blue", "red")) |> 
+  select(-OBJECTID, -Unit) # All units are ug/L
+```
+
+Finally, to make the `Result` column numeric, I'm going to assume that "<5" or whatever means "5". This is mathematically incorrect and probably inaccurate, but this is just an exercise in leaflet, not a formal analysis.
+
+```{r}
+first_last <- first_last |> 
+  mutate(Result = str_remove(Result, "<"),
+         Result = as.numeric(Result))
+```
+
+
+
+Now, we can plot these data:
+
+```{r}
+leaflet(first_last, width = "70%") |> 
+  addProviderTiles(providers$CartoDB.Positron) |> 
+  addCircles(lng = first_last$GPS_Coordinate_West,
+             lat = first_last$GPS_Coordinate_North,
+             radius = first_last$Result*10,
+             color = first_last$color,
+             weight = .2) |> 
+  addLegend(position = "bottomright",
+            colors = c("blue", "red"),
+            title = "Timepoint of collection per region:",
+            labels = c("First", "Last"))
+
+```
+Hey, look at that! Looks like in the upper right hand portion of Baltimore, things are getting better (sometimes a LOT better, in the case of Pulaski highway). The harbor appears to be getting worse, however.
